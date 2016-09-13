@@ -1,4 +1,4 @@
-package org.ssd;
+package org.peg;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -11,6 +11,10 @@ class Board {
 	private static final String BLANKS = "     ";
 	private int[] 	_pegs 		= new int[NUM_PEGS];
 	private int 	_pegCount 	= NUM_PEGS;
+	private long    _totalTries;
+	private long    _totalSolutions;
+	private List<Integer> 	_deferredMoves = new ArrayList<Integer>();
+	private List<Integer>	_currentMoveList = new ArrayList<Integer>();
 	
 	private static final int[][] JUMP_TABLE = {
 		{1,4,2},    {1,6,3},
@@ -62,50 +66,119 @@ class Board {
 		return false;
 	}
 
-	public List<String> generateLegalMoves() {
-		List<String> moves = new ArrayList<String>();
+	public List<Integer> generateLegalMoves() {
+		List<Integer> moves = new ArrayList<Integer>();
 		
 		for (int i = 0; i < JUMP_TABLE.length; i++) {
-			int from = JUMP_TABLE[i][0];
-			int to = JUMP_TABLE[i][1];
-			int jumped = JUMP_TABLE[i][2];
-			
-			if (isPegPresent(from) && isPegPresent(jumped) && !isPegPresent(to)) {
-				moves.add(from + "-" + to);
+			if (isLegalMove(i)) {
+				moves.add(Integer.valueOf(i));
 			}
 		}
 		
 		return moves;
 	}
 
-	public void move(String move) {
-		int from = Integer.valueOf(move.split("-")[0]);
-		int to = Integer.valueOf(move.split("-")[1]);
-		move(from, to);
+	private boolean isLegalMove(int n) {
+		int from = JUMP_TABLE[n][0];
+		int to = JUMP_TABLE[n][1];
+		int jumped = JUMP_TABLE[n][2];
+			
+		if (isPegPresent(from) && isPegPresent(jumped) && !isPegPresent(to)) {
+			return true;
+		}
+
+		return false;
 	}
 	
-	public void move(int from, int to) {
-		assertPeg(from);
-		assertPeg(to);
-		
-		int jumped = -1;
-		for (int i = 0; i < JUMP_TABLE.length; i++) {
-			if (from == JUMP_TABLE[i][0] && to == JUMP_TABLE[i][1]) {
-				jumped = JUMP_TABLE[i][2];
-				assertPeg(jumped);
-				break;
-			}
-		}
-		if (isPegPresent(from) && isPegPresent(jumped) && !isPegPresent(to)) {
+	public void move(int n) {
+		if (isLegalMove(n)) {
+			int from = JUMP_TABLE[n][0];
+			int to = JUMP_TABLE[n][1];
+			int jumped = JUMP_TABLE[n][2];
 			_pegs[from-1] = 0;
 			_pegs[jumped-1] = 0;
 			_pegs[to-1] = 1;
 			_pegCount--;
+			_currentMoveList.add(Integer.valueOf(n));
 		}
 	}
 
+	public int pushDeferredMovesToStack(){
+		int numPushed = 0;
+		for (int i = 0; i < JUMP_TABLE.length; i++) {
+			if (isLegalMove(i)) {
+				_deferredMoves.add(0, Integer.valueOf(i));
+				numPushed++;
+			}
+		}
+			
+		return numPushed;
+	}
+
+	public void run() {
+		int numPushed = pushDeferredMovesToStack();
+		for (int i = 0; i < numPushed; i++) {
+			depthFirstSearch();
+		}
+	}
+
+	public void depthFirstSearch() {
+		int move = _deferredMoves.remove(0).intValue();
+		doMove(move);
+
+		if (getPegCount() == 1) {
+			reportSolutions();
+			_totalTries++;
+			undoMove(move);
+			return;
+		}
+		
+		int numPushed = pushDeferredMovesToStack();
+		for (int i = 0; i < numPushed; i++) {
+			depthFirstSearch();
+		}
+		
+		if (numPushed == 0) {
+			_totalTries++;
+		}
+		undoMove(move);
+	}
+	
+	private void reportSolutions() {
+		_totalSolutions++;
+		if (_totalSolutions % 1000 == 0) {
+			for (int i = 0; i < _currentMoveList.size(); i++) {
+				System.out.print( printMove(_currentMoveList.get(i)) + " ");
+			}
+			System.out.println("#totalTries=" + _totalTries + ", solutions=" + _totalSolutions + ", ratio=" + 
+					_totalTries/_totalSolutions);
+//			print();
+		}
+	}
+	
+	public void doMove(int n) {
+		move(n);
+	}
+	
+	public void undoMove(int n) {
+		int from = JUMP_TABLE[n][0];
+		int to = JUMP_TABLE[n][1];
+		int jumped = JUMP_TABLE[n][2];
+		_pegs[from-1] = 1;
+		_pegs[jumped-1] = 1;
+		_pegs[to-1] = 0;
+		
+		_pegCount++;
+		
+		_currentMoveList.remove(_currentMoveList.size()-1);
+	}
+	
 	public void print() {
 		print("");
+	}
+
+	public String printMove(int n) {
+		return JUMP_TABLE[n][0] + "-" + JUMP_TABLE[n][1];
 	}
 
 	public void print(String note) {
@@ -128,19 +201,20 @@ class Board {
 public class Peg {
 	
 	public static void main(String[] args) {
+		
 		Random r = new Random();
 		Set<String> winningMoves = new TreeSet<String>();
 		
-		for (int i = 0 ; i < 2000000; i++) {
+		for (int i = 0 ; i < 2000; i++) {
 			List<String> gameMoves = new ArrayList<String>();
 			Board board = new Board();
 			board.removeInitialPeg(1);
 			
 			while (!board.isGameOver()) {
-				List<String> moves = board.generateLegalMoves();
-				String move = moves.get(r.nextInt(moves.size()));
+				List<Integer> moves = board.generateLegalMoves();
+				int move = moves.get(r.nextInt(moves.size())).intValue();
 				board.move(move);
-				gameMoves.add(move);
+				gameMoves.add(board.printMove(move));
 	//			board.print(move);
 			}
 			if (board.getPegCount() == 1) {
@@ -148,13 +222,17 @@ public class Peg {
 			}
 		}
 		
-		int c = 0;
-		for (String wm : winningMoves) {
-			System.out.println(wm);
-			if (c++==100) {
-				break;
-			}
-		}
-		System.out.println(winningMoves.size());
+//		int c = 0;
+//		for (String wm : winningMoves) {
+//			System.out.println(wm);
+//			if (c++==100) {
+//				break;
+//			}
+//		}
+//		System.out.println(winningMoves.size());
+ 
+		Board board = new Board();
+		board.removeInitialPeg(1);
+		board.run();
 	}
 }
